@@ -23,11 +23,6 @@ dev = [
 [tool.uv]
 package = false
 
-# prefactor-langchain 0.3.0, which adds PrefactorCallbackHandler, is not on
-# PyPI yet. Install it from the python-sdk branch until it is released.
-[tool.uv.sources]
-prefactor-langchain = { git = "https://github.com/prefactordev/python-sdk", branch = "pre-658-run-evals-on-trip-plans-during-each-run-and-in-an-eval", subdirectory = "packages/langchain" }
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 

@@ -1203,28 +1203,40 @@ wheels = [
 [[package]]
 name = "prefactor-core"
 version = "0.5.3"
-source = { git = "https://github.com/prefactordev/python-sdk?subdirectory=packages%2Fcore&branch=pre-658-run-evals-on-trip-plans-during-each-run-and-in-an-eval#60ee96232d8a547005665d29334caf20b7898fdc" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "prefactor-http" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8a/5e/cc2c973438700c13f70de559ad823450732d7f70ac1045388a1f3603a55f/prefactor_core-0.5.3.tar.gz", hash = "sha256:55e7466af275a697e1d8588e2b2ac0d40a0e8a93bddf55d2f148cfd9088b94d5", size = 41483, upload-time = "2026-08-13T08:00:21.521Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/7a/4fe9e05cb85b509d032529333cb3226751a40bbb7e4b88d89887b2245bfe/prefactor_core-0.5.3-py3-none-any.whl", hash = "sha256:f86f1d5d7347b18922af73a1f82115400fad8e15933ac6be032cdf9d2b963d19", size = 37127, upload-time = "2026-08-13T08:00:19.961Z" },
 ]
 
 [[package]]
 name = "prefactor-http"
 version = "0.4.3"
-source = { git = "https://github.com/prefactordev/python-sdk?subdirectory=packages%2Fhttp&branch=pre-658-run-evals-on-trip-plans-during-each-run-and-in-an-eval#60ee96232d8a547005665d29334caf20b7898fdc" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/17/60/812e0fc13e0f3dbe7fc61d72d069af5d8289f407bc50c8085f9f10eb14b1/prefactor_http-0.4.3.tar.gz", hash = "sha256:6e714c86322d9a93314ca53395a94df5e72e9b554d255d8afd6499cfc9def98c", size = 28291, upload-time = "2026-08-13T08:00:17.176Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/18/2925e441b4fb665998366170877b7c96193de522471cee1073cd3a042695/prefactor_http-0.4.3-py3-none-any.whl", hash = "sha256:0333918b9461fcacd0e0b137ca012bbdadf7ef58f2a7622e07139350c4caae86", size = 27808, upload-time = "2026-08-13T08:00:15.692Z" },
 ]
 
 [[package]]
 name = "prefactor-langchain"
 version = "0.3.0"
-source = { git = "https://github.com/prefactordev/python-sdk?subdirectory=packages%2Flangchain&branch=pre-658-run-evals-on-trip-plans-during-each-run-and-in-an-eval#60ee96232d8a547005665d29334caf20b7898fdc" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "prefactor-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/9d/6e76508b0e01faaedf5c67d8e1854d8c4d0a134d544047fa85ad2e74d382/prefactor_langchain-0.3.0.tar.gz", hash = "sha256:94a5585124657c9f3040e09486187f8b99367fd668bce1b51dffb539fceb107e", size = 67064, upload-time = "2026-10-26T23:35:03.767Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/6f/753659f7707d993e5b0a072e412a43b01ce6a6f33b0c45b8a3058210b96a/prefactor_langchain-0.3.0-py3-none-any.whl", hash = "sha256:280f2d3f3f91a01cdb36d6b10da12a3a95181e49e883c1afa60281140be3ba89", size = 26974, upload-time = "2026-10-26T23:35:02.048Z" },
 ]
 
 [[package]]
@@ -1887,7 +1899,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.0.0" },
     { name = "langchain-openai", specifier = ">=1.0.0" },
     { name = "langgraph", specifier = ">=1.0.0" },
-    { name = "prefactor-langchain", git = "https://github.com/prefactordev/python-sdk?subdirectory=packages%2Flangchain&branch=pre-658-run-evals-on-trip-plans-during-each-run-and-in-an-eval" },
+    { name = "prefactor-langchain", specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
 ]

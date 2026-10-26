@@ -42,8 +42,6 @@ uv sync
 cp .env.example .env  # then fill it in
 ```
 
-`prefactor-langchain` 0.3.0, which adds `PrefactorCallbackHandler`, is not on PyPI yet, so `pyproject.toml` installs it from a python-sdk branch. Switch it to the PyPI release once it is published.
-
 | Variable | Meaning |
 |---|---|
 | `TOGETHER_API_KEY` | Together AI API key |
