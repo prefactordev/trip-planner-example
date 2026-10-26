@@ -29,7 +29,7 @@ flowchart LR
 | `research_stops` | Runs a research agent for each stop in turn, with `wikipedia_summary` and `nearby_attractions`, then gets the stop's 16-day forecast with `weather_forecast` and, for every stop except the destination, places to stay within 20 km with `find_accommodation`, which also checks whether each place's website loads |
 | `draft_itinerary` | Writes the day-by-day plan in Markdown, with a date and the forecast for each day and up to two places to stay for each night, using the judges' feedback on later drafts |
 | `evaluate` | Asks the agent's Prefactor judges to review the run so far, records their verdicts as `trip_plan_quality` quality, and sends the graph back to `draft_itinerary` when a judge fails the draft |
-| `finalise` | Saves the plan to `out/<origin>-to-<destination>.md` |
+| `finalise` | Saves the plan to `out/<origin>-to-<destination>-<timestamp>.md` |
 
 Every model call sends the node's task as the system message and the original request as the only human message.
 
