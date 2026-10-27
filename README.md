@@ -1,67 +1,73 @@
 # Trip planner
 
-A command-line agent that plans a road trip between two places, and a guide to demonstrating it with Prefactor.
+A command-line agent that plans a road trip between two places, with a guide to demonstrating it in Prefactor.
 
-You give it a start and an end point. It finds a driving route, picks towns to stop at, looks up things to see, the weather and places to stay, and writes a day-by-day plan. Before it hands the plan over, a set of Prefactor judges review it. If a judge finds a problem, such as a made-up attraction or a day with too much driving, the agent rewrites the plan with the judge's feedback. Every step it takes is recorded in Prefactor, so you can follow the whole run and see why each judge passed or failed the plan.
+Give the agent a start and an end. It finds a driving route, chooses towns to stop at, looks up things to see, the weather and places to stay, and writes a day-by-day plan. Prefactor judges review each draft before the agent hands it over. When a judge fails a draft, the agent rewrites it using the judge's explanation. Prefactor records every step of the run, so you can follow what the agent did and read why each judge passed or failed the plan.
 
-The agent uses free public data:
+For more about agents, judges and quality in Prefactor, see the [Prefactor docs](https://docs.prefactor.tech).
+
+The agent uses these free public services:
 
 - [OpenStreetMap](https://www.openstreetmap.org/) for places, towns along the route and places to stay
 - [OSRM](https://project-osrm.org/) for driving routes
 - [Wikipedia](https://www.wikipedia.org/) for place summaries and nearby attractions
 - [Open-Meteo](https://open-meteo.com/) for weather forecasts
 
-## What you need
+## Requirements
 
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
-- A [Together AI](https://www.together.ai/) API key. The agent uses the Kimi K3 model by default.
-- A Prefactor account
+- a [Together AI](https://www.together.ai/) API key; the agent uses the Kimi K3 model unless you choose another
+- a Prefactor account at [app.prefactor.ai](https://app.prefactor.ai)
 
 ## Set up Prefactor
 
-Do these steps once, in the Prefactor app.
+Do these steps once, at [app.prefactor.ai](https://app.prefactor.ai).
 
 ### 1. Register the agent
 
 1. Open **Agents** and choose **Register agent**.
-2. Name it "Trip planner" and register it.
-3. Copy the agent ID. It is the last part of the agent page's address, after `/agents/`.
+2. Name the agent "Trip planner" and choose **Register agent**.
+3. Open the agent and copy its ID from the header.
 
-### 2. Get an environment ID and an API token
+### 2. Copy an environment ID and create an API token
 
-1. Open **Account settings**, then **Environments**, and copy the ID of the environment the trip planner should run in.
-2. In **Account settings**, open **API token** and create a token. Copy it, because you will not be able to see it again.
+1. Open **Account settings**, then **Environments**, and copy the ID of the environment to run the agent in.
+2. In **Account settings**, open **API token** and create a token. Copy the token now, because Prefactor shows it only once.
 
-### 3. Add a language model for the judges
+### 3. Add a model for the judges
 
-Judges need a model to run on. In **Account settings**, open **LLM providers**, add a provider with its API key, and add a model to it. Together AI with Kimi K3 works, but you can use any provider and model.
+Judges need a language model. In **Account settings**, open **LLM providers**, add a provider with its API key, then add a model to that provider. Together AI with Kimi K3 works, and so does any other provider and model.
 
 ### 4. Create the judges
 
-The [`judges/`](judges/) folder has one criterion for each judge. Create a judge for each file:
+The [`judges/`](judges/) folder holds one criterion for each judge. For each file:
 
-1. Open **Judges** and choose **Register judge**. Give it the name from the table below.
-2. On the judge's page, choose **Create judge**, select the model from step 3, choose **Write your own**, and paste the contents of the file into **Criterion**.
+1. Open **Judges** and choose **Register judge**.
+2. Enter the judge's name from the [judges table](#judges) and choose **Register judge**.
+3. On the judge's page, choose **Create judge**.
+4. Select the model from step 3, choose **Write your own**, paste the contents of the file into **Criterion**, and choose **Create judge**.
 
-| Judge | File | Fails the plan when |
-|---|---|---|
-| Trip plan rules | [`rules.md`](judges/rules.md) | The plan does not start and end where asked, has the wrong number of days, stops somewhere that is not on the route, has a day with more than 400 km of driving, or gives a date or weather that does not match the forecast |
-| Trip plan accommodation | [`accommodation.md`](judges/accommodation.md) | A night has nowhere to stay, or names a place to stay that was not found near that stop, or links a website that does not load |
-| Trip plan hallucination | [`hallucination.md`](judges/hallucination.md) | The plan states something about a place that the agent did not look up |
-| Trip plan locations | [`locations.md`](judges/locations.md) | A place could not be found, was mistaken for another place, or cannot be reached by road, and the plan does not say so |
-| Trip worth taking | [`worth_taking.md`](judges/worth_taking.md) | The trip is a poor idea as asked and the plan does not warn the traveller. A trip is a poor idea when it needs more than 400 km of driving a day or less than 250 km a day, when rain is likely on most days, when the weather is extreme, or when there are few places to stop or stay |
-| Trip plan makes sense | [`makes_sense.md`](judges/makes_sense.md) | The plan suggests something a traveller would not choose to do, such as visiting a hospital, a prison or a plain railway station, or filler such as "stock up on food" |
+Leave out any judge you do not need for your demo, or edit a criterion to change what the judge checks.
 
-You can leave out any judge you do not want to show, and you can change a criterion to suit your demo.
-
-### 5. Attach the judges to the agent
+### 5. Add the judges to the agent
 
 1. Open the Trip planner agent.
 2. On the **Overview** tab, in the **Judges** box, choose **Add judge**.
-3. Pick a judge and set **Trigger** to **On completion**.
+3. Choose a judge, set **Trigger** to **On completion**, and add it.
 4. Repeat for each judge.
 
-The agent asks every attached judge to review each draft while it runs. With the trigger set to **On completion**, each judge also reviews the run once it has finished.
+The agent asks every judge added to it to review each draft during the run. The **On completion** trigger makes each judge review the run once more after it finishes.
+
+## Judges
+
+| Judge | Criterion | Fails the plan when |
+|---|---|---|
+| Trip plan rules | [`rules.md`](judges/rules.md) | the plan does not start and end where asked, has the wrong number of days, stops somewhere off the route, has a day with more than 400 km of driving, or gives a date or weather that does not match the forecast |
+| Trip plan accommodation | [`accommodation.md`](judges/accommodation.md) | a night has nowhere to stay, names a place to stay that the agent did not find near that stop, or links a website that does not load |
+| Trip plan hallucination | [`hallucination.md`](judges/hallucination.md) | the plan states something about a place that the agent did not look up |
+| Trip plan locations | [`locations.md`](judges/locations.md) | a place could not be found, was mistaken for another place, or cannot be reached by road, and the plan does not say so |
+| Trip worth taking | [`worth_taking.md`](judges/worth_taking.md) | the trip is a poor idea as asked and the plan does not warn the traveller; a trip is a poor idea when it needs more than 400 km or less than 250 km of driving a day, when rain is likely on most days, when the weather is extreme, or when there are few places to stop or stay |
+| Trip plan makes sense | [`makes_sense.md`](judges/makes_sense.md) | the plan suggests something a traveller would not choose to do, such as visiting a hospital, a prison or a plain railway station, or filler such as "stock up on food" |
 
 ## Set up the trip planner
 
@@ -72,15 +78,15 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Setting | What to put |
+| Setting | Value |
 |---|---|
-| `TOGETHER_API_KEY` | Your Together AI API key |
-| `PREFACTOR_API_URL` | The address of your Prefactor app |
-| `PREFACTOR_API_TOKEN` | The API token from step 2 |
-| `PREFACTOR_AGENT_ID` | The agent ID from step 1 |
-| `PREFACTOR_ENVIRONMENT_ID` | The environment ID from step 2 |
+| `TOGETHER_API_KEY` | your Together AI API key |
+| `PREFACTOR_API_URL` | `https://app.prefactor.ai` |
+| `PREFACTOR_API_TOKEN` | the API token from step 2 |
+| `PREFACTOR_AGENT_ID` | the agent ID from step 1 |
+| `PREFACTOR_ENVIRONMENT_ID` | the environment ID from step 2 |
 
-You can also set `TOGETHER_MODEL` to use another Together AI model. It must support tool calling.
+To use another Together AI model, set `TOGETHER_MODEL` to its name. The model must support tool calling.
 
 ## Plan a trip
 
@@ -89,62 +95,62 @@ uv run --env-file .env python main.py Melbourne Adelaide
 uv run --env-file .env python main.py "San Francisco" "Los Angeles" --days 3
 ```
 
-Without `--days`, the agent uses the fewest days that keep each day to 400 km of driving or less.
+Without `--days`, the agent plans the fewest days that keep each day to 400 km of driving or less.
 
-A run takes a few minutes. When it finishes, the terminal shows the plan, then each judge's verdict on the final draft. The plan is also saved as a Markdown file in the `out/` folder.
+A run takes a few minutes. When it finishes, the terminal shows the plan and each judge's verdict on the final draft, and the agent saves the plan as a Markdown file in `out/`.
 
-A plan has:
+Each plan has:
 
 - a short summary
 - a "Before you go" note, when the trip is a poor idea as asked or cannot be done
-- an "At a glance" list with one line for each day: date, route, driving distance, weather and where to stay
+- an "At a glance" list with the date, route, driving distance, weather and place to stay for each day
 - a section for each day, with things to see and do and up to two places to stay
 
-## What you see in Prefactor
+## Review a run in Prefactor
 
-Open the Trip planner agent. Each run appears in its list of instances. Open the latest one.
+Open the Trip planner agent. Prefactor lists each run under the agent's instances. Open a run.
 
 The **Activity** tab shows the run as a conversation:
 
 - the request, as the user's message
-- each step the agent took, in order: reading the request, planning the route, researching each stop, writing the plan, and the judges' review
-- under each step, the model's messages and thinking, every lookup it made and what came back
-- the plan itself, as the agent's reply
+- each step of the agent in order: reading the request, planning the route, researching each stop, writing the plan and asking the judges
+- under each step, the model's messages and reasoning, each lookup and its result
+- the plan, as the agent's reply
 
 The **Quality** tab shows:
 
-- a "Trip plan quality" score for each draft, out of 100, with every judge's verdict and explanation
-- each judge's own verdict, with a link to the judge's run so you can see its reasoning
+- a "Trip plan quality" score out of 100 for each draft, with each judge's verdict and explanation
+- each judge's latest verdict, with a link to the judge's own run
 
 ## Run a demo
 
-These trips show different parts of the agent and the judges. You can run several at once in separate terminals. Put `uv run --env-file .env python` in front of each command.
+These trips each show a different behaviour. To run several at once, use a separate terminal for each. Start each command with `uv run --env-file .env python`.
 
-| Trip | Command | What to look for |
-|---|---|---|
-| A normal trip | `main.py Melbourne Adelaide` | Every judge passes, often on the first draft |
-| A long trip | `main.py Sydney Perth` | More days and stops, with a place to stay each night |
-| A trip that is too short | `main.py Sydney Perth --days 1` | The plan warns that the driving is far too long for one day, and the "Trip worth taking" judge checks that it does |
-| An impossible trip | `main.py Melbourne Manila` | There is no road between them, so the agent writes a short note explaining why instead of a plan |
-| A place that does not exist | `main.py Melbourne Xyzzyville` | The agent says it could not find the place, and the "Trip plan locations" judge checks that it did |
+| Command | What to show |
+|---|---|
+| `main.py Melbourne Adelaide` | an ordinary trip that every judge passes, often on the first draft |
+| `main.py Sydney Perth` | a long trip with more days and stops, and a place to stay each night |
+| `main.py Sydney Perth --days 1` | a trip with too much driving for one day; the plan warns about it, and the "Trip worth taking" judge checks the warning |
+| `main.py Melbourne Manila` | a trip with no road between the places; the agent writes a short note explaining why instead of a plan |
+| `main.py Melbourne Xyzzyville` | a place that does not exist; the agent says it could not find it, and the "Trip plan locations" judge checks that |
 
-When a judge fails a draft, open the **Quality** tab to read its explanation, then the **Activity** tab to see the agent rewrite the plan with that feedback. The agent writes at most 3 drafts. If the last draft still fails, it saves that draft and the terminal shows which judges failed it.
+When a judge fails a draft, read its explanation on the **Quality** tab, then follow the agent's rewrite on the **Activity** tab. The agent writes at most 3 drafts. If the third draft still fails, the agent saves it and the terminal shows which judges failed it.
 
-## Run the eval set
+## Run the evals
 
-`run_evals.py` plans three fixed trips, one after another, and reports whether each final plan passed:
+`run_evals.py` plans three fixed trips one after another and reports whether each final plan passed:
 
 ```bash
 uv run --env-file .env python run_evals.py
 ```
 
-It exits with status 1 if any plan fails, so you can run it in CI. In Prefactor, these runs are labelled as evals in the agent's list of instances, so you can tell them apart from normal runs.
+The script exits with status 1 if any plan fails, so you can run it in CI. Prefactor labels these runs as evals in the agent's instances, to keep them apart from other runs.
 
-## Troubleshooting
+## Fix common problems
 
-| Problem | What to do |
+| Problem | Fix |
 |---|---|
-| A run stops with a timeout or a "service unavailable" error from Together AI | The model is busy. The agent retries a few times on its own; if it still fails, run it again |
-| The terminal shows a score of 0 and no judges | No judges are attached to the agent. Follow steps 4 and 5 |
-| The run fails at the start with an error about the agent or environment | Check `PREFACTOR_AGENT_ID` and `PREFACTOR_ENVIRONMENT_ID`, and check that the API token belongs to the same account |
+| A run stops with a timeout or a "service unavailable" error from Together AI | The model is busy. The agent retries a few times; if the run still fails, start it again |
+| The terminal shows a score of 0 and no judges | No judges are added to the agent. Follow steps 4 and 5 |
+| The run fails at the start with an error about the agent or environment | Check `PREFACTOR_AGENT_ID` and `PREFACTOR_ENVIRONMENT_ID`, and check that the API token is from the same account |
 | A route lookup fails | The public map and routing services are sometimes slow or unavailable. Wait a minute and try again |
