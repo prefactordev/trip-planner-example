@@ -1,121 +1,150 @@
-# Trip planner example
+# Trip planner
 
-A LangGraph agent that plans a road trip between two places and writes the plan as a Markdown document. Before it saves a plan, it asks the agent's Prefactor judges to review each draft, records their verdicts in Prefactor as quality, and revises the plan until every judge passes it. It is traced in Prefactor with `PrefactorCallbackHandler` from [`prefactor-langchain`](https://github.com/prefactordev/python-sdk/tree/main/packages/langchain).
+A command-line agent that plans a road trip between two places, and a guide to demonstrating it with Prefactor.
 
-This is a command-line app. The earlier SvelteKit web version is on the [`dev`](https://github.com/prefactordev/trip-planner-example/tree/dev) branch.
+You give it a start and an end point. It finds a driving route, picks towns to stop at, looks up things to see, the weather and places to stay, and writes a day-by-day plan. Before it hands the plan over, a set of Prefactor judges review it. If a judge finds a problem, such as a made-up attraction or a day with too much driving, the agent rewrites the plan with the judge's feedback. Every step it takes is recorded in Prefactor, so you can follow the whole run and see why each judge passed or failed the plan.
 
-The planner uses free public APIs that need no key:
+The agent uses free public data:
 
-- [Nominatim](https://nominatim.org/) (OpenStreetMap) to find places, the towns along a route and places to stay
+- [OpenStreetMap](https://www.openstreetmap.org/) for places, towns along the route and places to stay
 - [OSRM](https://project-osrm.org/) for driving routes
-- [Wikipedia](https://www.mediawiki.org/wiki/API:Main_page) for place summaries and nearby attractions
+- [Wikipedia](https://www.wikipedia.org/) for place summaries and nearby attractions
 - [Open-Meteo](https://open-meteo.com/) for weather forecasts
 
-Responses are cached for the life of the process, and Nominatim requests are spaced one second apart to follow its [usage policy](https://operations.osmfoundation.org/policies/nominatim/).
+## What you need
 
-## The graph
+- [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
+- A [Together AI](https://www.together.ai/) API key. The agent uses the Kimi K3 model by default.
+- A Prefactor account
 
-```mermaid
-flowchart LR
-    START --> parse_request --> plan_route --> research_stops --> draft_itinerary --> evaluate
-    evaluate -- failed, fewer than 3 drafts --> draft_itinerary
-    evaluate -- passed, or 3 drafts --> finalise --> END
-```
+## Set up Prefactor
 
-| Node | What it does |
-|---|---|
-| `parse_request` | Extracts the origin, destination, number of days and interests from the request |
-| `plan_route` | An agent with `geocode`, `get_route` and `find_towns_along_route` that chooses 2 to 6 stops |
-| `research_stops` | Runs a research agent for each stop in turn, with `wikipedia_summary` and `nearby_attractions`, then gets the stop's 16-day forecast with `weather_forecast` and, for every stop except the destination, places to stay within 20 km with `find_accommodation`, which also checks whether each place's website loads |
-| `draft_itinerary` | Writes the day-by-day plan in Markdown, with a date and the forecast for each day and up to two places to stay for each night, using the judges' feedback on later drafts |
-| `evaluate` | Asks the agent's Prefactor judges to review the run so far, records their verdicts as `trip_plan_quality` quality, and sends the graph back to `draft_itinerary` when a judge fails the draft |
-| `finalise` | Saves the plan to `out/<origin>-to-<destination>-<timestamp>.md` |
+Do these steps once, in the Prefactor app.
 
-Every model call sends the node's task as the system message and the original request as the only human message.
+### 1. Register the agent
 
-## Setup
+1. Open **Agents** and choose **Register agent**.
+2. Name it "Trip planner" and register it.
+3. Copy the agent ID. It is the last part of the agent page's address, after `/agents/`.
 
-You need [uv](https://docs.astral.sh/uv/) and Python 3.11 or later.
+### 2. Get an environment ID and an API token
+
+1. Open **Account settings**, then **Environments**, and copy the ID of the environment the trip planner should run in.
+2. In **Account settings**, open **API token** and create a token. Copy it, because you will not be able to see it again.
+
+### 3. Add a language model for the judges
+
+Judges need a model to run on. In **Account settings**, open **LLM providers**, add a provider with its API key, and add a model to it. Together AI with Kimi K3 works, but you can use any provider and model.
+
+### 4. Create the judges
+
+The [`judges/`](judges/) folder has one criterion for each judge. Create a judge for each file:
+
+1. Open **Judges** and choose **Register judge**. Give it the name from the table below.
+2. On the judge's page, choose **Create judge**, select the model from step 3, choose **Write your own**, and paste the contents of the file into **Criterion**.
+
+| Judge | File | Fails the plan when |
+|---|---|---|
+| Trip plan rules | [`rules.md`](judges/rules.md) | The plan does not start and end where asked, has the wrong number of days, stops somewhere that is not on the route, has a day with more than 400 km of driving, or gives a date or weather that does not match the forecast |
+| Trip plan accommodation | [`accommodation.md`](judges/accommodation.md) | A night has nowhere to stay, or names a place to stay that was not found near that stop, or links a website that does not load |
+| Trip plan hallucination | [`hallucination.md`](judges/hallucination.md) | The plan states something about a place that the agent did not look up |
+| Trip plan locations | [`locations.md`](judges/locations.md) | A place could not be found, was mistaken for another place, or cannot be reached by road, and the plan does not say so |
+| Trip worth taking | [`worth_taking.md`](judges/worth_taking.md) | The trip is a poor idea as asked and the plan does not warn the traveller. A trip is a poor idea when it needs more than 400 km of driving a day or less than 250 km a day, when rain is likely on most days, when the weather is extreme, or when there are few places to stop or stay |
+| Trip plan makes sense | [`makes_sense.md`](judges/makes_sense.md) | The plan suggests something a traveller would not choose to do, such as visiting a hospital, a prison or a plain railway station, or filler such as "stock up on food" |
+
+You can leave out any judge you do not want to show, and you can change a criterion to suit your demo.
+
+### 5. Attach the judges to the agent
+
+1. Open the Trip planner agent.
+2. On the **Overview** tab, in the **Judges** box, choose **Add judge**.
+3. Pick a judge and set **Trigger** to **On completion**.
+4. Repeat for each judge.
+
+The agent asks every attached judge to review each draft while it runs. With the trigger set to **On completion**, each judge also reviews the run once it has finished.
+
+## Set up the trip planner
 
 ```bash
 uv sync
-cp .env.example .env  # then fill it in
+cp .env.example .env
 ```
 
-| Variable | Meaning |
-|---|---|
-| `TOGETHER_API_KEY` | Together AI API key |
-| `TOGETHER_MODEL` | Together AI model; defaults to `moonshotai/Kimi-K3`; any model you use must support tool calling |
-| `PREFACTOR_API_URL` | Prefactor API URL, for example `http://localhost:4000` for a local server |
-| `PREFACTOR_API_TOKEN` | Prefactor API token |
-| `PREFACTOR_AGENT_ID` | Prefactor agent ID; omit it when the token is scoped to an agent deployment |
-| `PREFACTOR_ENVIRONMENT_ID` | Prefactor environment ID; needed only for the first run of an agent that has no deployments |
+Fill in `.env`:
 
-## Run
+| Setting | What to put |
+|---|---|
+| `TOGETHER_API_KEY` | Your Together AI API key |
+| `PREFACTOR_API_URL` | The address of your Prefactor app |
+| `PREFACTOR_API_TOKEN` | The API token from step 2 |
+| `PREFACTOR_AGENT_ID` | The agent ID from step 1 |
+| `PREFACTOR_ENVIRONMENT_ID` | The environment ID from step 2 |
+
+You can also set `TOGETHER_MODEL` to use another Together AI model. It must support tool calling.
+
+## Plan a trip
 
 ```bash
 uv run --env-file .env python main.py Melbourne Adelaide
 uv run --env-file .env python main.py "San Francisco" "Los Angeles" --days 3
 ```
 
-Without `--days`, the planner uses the fewest days that keep each day within 400 km of driving.
+Without `--days`, the agent uses the fewest days that keep each day to 400 km of driving or less.
 
-A run takes a few minutes, mostly in route lookups, research and judging. When it finishes, the script prints the plan in the terminal, then each judge's verdict on the final draft, and saves the plan as Markdown.
+A run takes a few minutes. When it finishes, the terminal shows the plan, then each judge's verdict on the final draft. The plan is also saved as a Markdown file in the `out/` folder.
 
-The plan starts with a short summary, then a "Before you go" note when the trip is a poor idea as asked, and an "At a glance" list with one line per day: date, route, driving distance, weather and where to stay. It uses no Markdown tables, because Prefactor's conversation view renders plain CommonMark. A section for each day follows, with a line giving the date, driving distance and weather, then "See and do" and "Where to stay" lists.
+A plan has:
+
+- a short summary
+- a "Before you go" note, when the trip is a poor idea as asked or cannot be done
+- an "At a glance" list with one line for each day: date, route, driving distance, weather and where to stay
+- a section for each day, with things to see and do and up to two places to stay
 
 ## What you see in Prefactor
 
-Open the agent instance and choose the conversation view:
+Open the Trip planner agent. Each run appears in its list of instances. Open the latest one.
 
-- one user message with the request
-- an agent run divider for the graph run (`langchain:agent`)
-- a card for each node in order (`langchain:node`), named by the node
-- under each node, its model calls (`langchain:llm`), tool calls and tool results (`langchain:tool`); calls made by the route and research agents appear under the node that ran them
-- the trip plan is the reply to the last `draft_itinerary` model call
-- a `trip_plan_quality` quality entry for each draft, with its score, attempt number and every judge's verdict
-- a quality entry from each judge; it holds the latest verdict, from the last draft or from the review after the run completes
+The **Activity** tab shows the run as a conversation:
 
-## Evals
+- the request, as the user's message
+- each step the agent took, in order: reading the request, planning the route, researching each stop, writing the plan, and the judges' review
+- under each step, the model's messages and thinking, every lookup it made and what came back
+- the plan itself, as the agent's reply
 
-The evals are Prefactor judges. A judge is an agent in Prefactor that reads the whole record of a run, including the model calls, tool calls, tool results and the model's thinking, and gives a pass or fail verdict with an explanation.
+The **Quality** tab shows:
 
-The `evaluate` node runs every judge associated with the trip planner agent on each draft, before the plan is saved:
+- a "Trip plan quality" score for each draft, out of 100, with every judge's verdict and explanation
+- each judge's own verdict, with a link to the judge's run so you can see its reasoning
 
-1. It waits until the draft's model and tool calls have reached Prefactor. The SDK sends span updates from a background queue.
-2. It asks each judge to score the running instance through `POST /api/v1/agent_instance/{id}/judge`, and waits for the verdicts.
-3. It records the verdicts as `trip_plan_quality` quality. The score is the share of judges that passed, out of 100.
-4. When a judge fails the draft, the graph sends its explanation back to `draft_itinerary` as feedback. After 3 drafts the graph saves the last draft whether or not it passed.
+## Run a demo
 
-Set the judges up in the Prefactor app. Create a judge agent with a hosted version, then associate it with the trip planner agent. With the trigger set to on completion, the judge also reviews the finished run. The criterion for each judge is in [`judges/`](judges/). The judges used for this example are:
+These trips show different parts of the agent and the judges. You can run several at once in separate terminals. Put `uv run --env-file .env python` in front of each command.
 
-| Judge | Fails the draft when |
-|---|---|
-| Trip plan rules | The plan does not start and end where asked, has the wrong number of days, ends a day somewhere the route tools did not return, has a day with more than 400 km of driving, or gives a date or weather that does not match the forecast at that day's end stop. Day 1 is the day of the run and Day N is N - 1 days later |
-| Trip plan accommodation | A night has no "Where to stay" section, or names a place that `find_accommodation` did not return for that day's end stop, or gives its type, town or distance wrongly, or links a website whose check was not `ok` (a judge cannot open links, so it relies on the check in the tool result), or ends at a stop with nowhere to stay when another stop within the driving limit had somewhere |
-| Trip plan hallucination | The latest draft states something about a place that is not in the run's tool results |
-| Trip plan locations | `geocode` found no place, or a different place from the one the user meant, or there is no driving route, and the plan does not say so; or the plan says a place could not be found when it was |
-| Trip worth taking | The trip is a poor idea as asked and the plan has no "Before you go" note saying why. It is a poor idea when the route is over 400 km a day or under 250 km a day, rain is likely on most days, the weather is extreme, or there are few places to stop or stay |
-| Trip plan makes sense | A "See and do" suggestion is something a traveller would not choose to do: a place not open to visitors, such as a hospital, prison, school or plain railway station, a place named with no reason to go, or filler such as visiting "between showers" or "stock up on food" |
+| Trip | Command | What to look for |
+|---|---|---|
+| A normal trip | `main.py Melbourne Adelaide` | Every judge passes, often on the first draft |
+| A long trip | `main.py Sydney Perth` | More days and stops, with a place to stay each night |
+| A trip that is too short | `main.py Sydney Perth --days 1` | The plan warns that the driving is far too long for one day, and the "Trip worth taking" judge checks that it does |
+| An impossible trip | `main.py Melbourne Manila` | There is no road between them, so the agent writes a short note explaining why instead of a plan |
+| A place that does not exist | `main.py Melbourne Xyzzyville` | The agent says it could not find the place, and the "Trip plan locations" judge checks that it did |
 
-When `plan_route` cannot find a place or a driving route, it leaves the stops empty and the plan is a short "Before you go" note saying why. The other judges pass a plan like this and leave it to the locations judge.
+When a judge fails a draft, open the **Quality** tab to read its explanation, then the **Activity** tab to see the agent rewrite the plan with that feedback. The agent writes at most 3 drafts. If the last draft still fails, it saves that draft and the terminal shows which judges failed it.
 
-`nearby_attractions` returns each Wikipedia article's short description, such as "Australian medium security prison" or "Psychiatric prison now museum", so the researcher can leave out places that are not for visitors.
+## Run the eval set
 
-The unit tests for the judge client use a fake Prefactor API, and the tool tests use no network:
-
-```bash
-uv run pytest
-```
-
-### Run the eval set
-
-`run_evals.py` runs three fixed routes, each as an agent instance with the `eval` purpose, and exits with status 1 when any final plan fails:
+`run_evals.py` plans three fixed trips, one after another, and reports whether each final plan passed:
 
 ```bash
 uv run --env-file .env python run_evals.py
 ```
 
-In Prefactor, these runs carry an eval label in the agent's list of instances, which sets them apart from live runs.
+It exits with status 1 if any plan fails, so you can run it in CI. In Prefactor, these runs are labelled as evals in the agent's list of instances, so you can tell them apart from normal runs.
 
-Each span is created with an HTTP request before the step continues, which adds a little latency to every step.
+## Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| A run stops with a timeout or a "service unavailable" error from Together AI | The model is busy. The agent retries a few times on its own; if it still fails, run it again |
+| The terminal shows a score of 0 and no judges | No judges are attached to the agent. Follow steps 4 and 5 |
+| The run fails at the start with an error about the agent or environment | Check `PREFACTOR_AGENT_ID` and `PREFACTOR_ENVIRONMENT_ID`, and check that the API token belongs to the same account |
+| A route lookup fails | The public map and routing services are sometimes slow or unavailable. Wait a minute and try again |
