@@ -5,9 +5,9 @@ Usage:
     python main.py Melbourne Adelaide --days 4
 
 Environment:
-    OPENAI_BASE_URL      Base URL of an OpenAI-compatible API
-    OPENAI_API_KEY       API key for that API
-    OPENAI_MODEL         Model name; it must support tool calling
+    LLM_BASE_URL         Base URL of an OpenAI-compatible API
+    LLM_API_KEY          API key for that API
+    LLM_MODEL            Model name; it must support tool calling
     PREFACTOR_API_URL    Prefactor API URL
     PREFACTOR_API_TOKEN  Prefactor API token
     PREFACTOR_AGENT_ID   Prefactor agent ID (omit for deployment-scoped tokens)
@@ -66,9 +66,9 @@ def schema_version_id(registry: SchemaRegistry) -> str:
 def chat_model() -> ChatOpenAI:
     """Create a chat model on the configured OpenAI-compatible API."""
     return ChatOpenAI(
-        model=os.environ["OPENAI_MODEL"],
-        base_url=os.environ["OPENAI_BASE_URL"],
-        api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
+        model=os.environ["LLM_MODEL"],
+        base_url=os.environ["LLM_BASE_URL"],
+        api_key=SecretStr(os.environ["LLM_API_KEY"]),
         # Reasoning models think before they answer, and a long trip can use
         # most of the budget on reasoning.
         max_completion_tokens=32000,
