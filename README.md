@@ -4,7 +4,7 @@ A command-line agent that plans a road trip between two places, with a guide to 
 
 Give the agent a start and an end. It finds a driving route, chooses towns to stop at, looks up things to see, the weather and places to stay, and writes a day-by-day plan. Prefactor judges review each draft before the agent hands it over. When a judge fails a draft, the agent rewrites it using the judge's explanation. Prefactor records every step of the run, so you can follow what the agent did and read why each judge passed or failed the plan.
 
-For more about agents, judges and quality in Prefactor, see the [Prefactor docs](https://docs.prefactor.tech).
+For more about agents, runs and quality in Prefactor, see the [Prefactor docs](https://docs.prefactor.tech).
 
 The agent uses these free public services:
 
@@ -16,12 +16,12 @@ The agent uses these free public services:
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
-- a [Together AI](https://www.together.ai/) API key; the agent uses the Kimi K3 model unless you choose another
-- a Prefactor account at [app.prefactor.ai](https://app.prefactor.ai)
+- an API key for a model provider with an OpenAI-compatible API, such as [Together AI](https://docs.together.ai/docs/openai-api-compatibility), and a model there that supports tool calling
+- a Prefactor account at [app.prefactorai.com](https://app.prefactorai.com)
 
 ## Set up Prefactor
 
-Do these steps once, at [app.prefactor.ai](https://app.prefactor.ai).
+Do these steps once, at [app.prefactorai.com](https://app.prefactorai.com).
 
 ### 1. Register the agent
 
@@ -32,11 +32,11 @@ Do these steps once, at [app.prefactor.ai](https://app.prefactor.ai).
 ### 2. Copy an environment ID and create an API token
 
 1. Open **Account settings**, then **Environments**, and copy the ID of the environment to run the agent in.
-2. In **Account settings**, open **API token** and create a token. Copy the token now, because Prefactor shows it only once.
+2. In **Account settings**, open **API tokens** and create a token. Copy the token now, because Prefactor shows it only once.
 
 ### 3. Add a model for the judges
 
-Judges need a language model. In **Account settings**, open **LLM providers**, add a provider with its API key, then add a model to that provider. Together AI with Kimi K3 works, and so does any other provider and model.
+Judges need a language model. In **Account settings**, open **LLM providers**, add a provider with its API key, then add a model to that provider. Choose a fast model, such as GLM-5.3 Flash on Together AI, because each judge reads the whole record of a run.
 
 ### 4. Create the judges
 
@@ -80,13 +80,13 @@ Fill in `.env`:
 
 | Setting | Value |
 |---|---|
-| `TOGETHER_API_KEY` | your Together AI API key |
-| `PREFACTOR_API_URL` | `https://app.prefactor.ai` |
+| `OPENAI_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
+| `OPENAI_API_KEY` | your API key for that provider |
+| `OPENAI_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
+| `PREFACTOR_API_URL` | `https://app.prefactorai.com` |
 | `PREFACTOR_API_TOKEN` | the API token from step 2 |
 | `PREFACTOR_AGENT_ID` | the agent ID from step 1 |
 | `PREFACTOR_ENVIRONMENT_ID` | the environment ID from step 2 |
-
-To use another Together AI model, set `TOGETHER_MODEL` to its name. The model must support tool calling.
 
 ## Plan a trip
 
@@ -129,7 +129,7 @@ These trips each show a different behaviour. To run several at once, use a separ
 | Command | What to show |
 |---|---|
 | `main.py Melbourne Adelaide` | an ordinary trip that every judge passes, often on the first draft |
-| `main.py Sydney Perth` | a long trip with more days and stops, and a place to stay each night |
+| `main.py Melbourne Brisbane` | a long trip with more days and stops, and a place to stay each night |
 | `main.py Sydney Perth --days 1` | a trip with too much driving for one day; the plan warns about it, and the "Trip worth taking" judge checks the warning |
 | `main.py Melbourne Manila` | a trip with no road between the places; the agent writes a short note explaining why instead of a plan |
 | `main.py Melbourne Xyzzyville` | a place that does not exist; the agent says it could not find it, and the "Trip plan locations" judge checks that |
@@ -150,7 +150,7 @@ The script exits with status 1 if any plan fails, so you can run it in CI. Prefa
 
 | Problem | Fix |
 |---|---|
-| A run stops with a timeout or a "service unavailable" error from Together AI | The model is busy. The agent retries a few times; if the run still fails, start it again |
+| A run stops with a timeout or a "service unavailable" error from the model provider | The model is busy. The agent retries a few times; if the run still fails, start it again |
 | The terminal shows a score of 0 and no judges | No judges are added to the agent. Follow steps 4 and 5 |
 | The run fails at the start with an error about the agent or environment | Check `PREFACTOR_AGENT_ID` and `PREFACTOR_ENVIRONMENT_ID`, and check that the API token is from the same account |
 | A route lookup fails | The public map and routing services are sometimes slow or unavailable. Wait a minute and try again |
