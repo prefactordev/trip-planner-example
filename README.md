@@ -16,47 +16,88 @@ The agent uses these free public services:
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
+- [jq](https://jqlang.org/), to read IDs from the Prefactor CLI's output
 - an API key for a model provider with an OpenAI-compatible API, such as [Together AI](https://docs.together.ai/docs/openai-api-compatibility), and a model there that supports tool calling
 - a Prefactor account at [app.prefactorai.com](https://app.prefactorai.com)
 
-## Set up Prefactor
+## Set up
 
-Do these steps once, at [app.prefactorai.com](https://app.prefactorai.com).
+Do these steps once. Run the commands from this folder.
 
-### 1. Register the agent
+### 1. Install the Prefactor CLI and sign in
 
-1. Open **Agents** and choose **Register agent**.
-2. Name the agent "Trip planner" and choose **Register agent**.
-3. Open the agent and copy its ID from the header.
+```bash
+curl -fsSL https://raw.githubusercontent.com/prefactordev/typescript-sdk/main/scripts/install.sh | bash
+prefactor login
+```
 
-### 2. Copy an environment ID and create an API token
+For Windows and other ways to install, see the [Prefactor CLI](https://github.com/prefactordev/typescript-sdk/tree/main/packages/cli).
 
-1. Open **Account settings**, then **Environments**, and copy the ID of the environment to run the agent in.
-2. In **Account settings**, open **API tokens** and create a token. Copy the token now, because Prefactor shows it only once.
+### 2. Set the model
 
-### 3. Add a model for the judges
+```bash
+uv sync
+cp .env.example .env
+```
 
-Judges need a language model. In **Account settings**, open **LLM providers**, add a provider with its API key, then add a model to that provider. Choose a fast model, such as GLM-5.3 Flash on Together AI, because each judge reads the whole record of a run.
+Fill in the model settings in `.env`:
 
-### 4. Create the judges
+| Setting | Value |
+|---|---|
+| `OPENAI_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
+| `OPENAI_API_KEY` | your API key for that provider |
+| `OPENAI_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
 
-The [`judges/`](judges/) folder holds one criterion for each judge. For each file:
+### 3. Create the agent
 
-1. Open **Judges** and choose **Register judge**.
-2. Enter the judge's name from the [judges table](#judges) and choose **Register judge**.
-3. On the judge's page, choose **Create judge**.
-4. Select the model from step 3, choose **Write your own**, paste the contents of the file into **Criterion**, and choose **Create judge**.
+```bash
+prefactor setup --create --name "Trip planner" | grep -E '^PREFACTOR_(API_URL|AGENT_ID)=' >> .env
+echo "PREFACTOR_API_TOKEN=$(prefactor api_tokens create --token_scope account | jq -r .details.token)" >> .env
+```
 
-Leave out any judge you do not need for your demo, or edit a criterion to change what the judge checks.
+`prefactor setup` creates the agent and a deployment for it, and the first command adds the Prefactor address and the agent ID to `.env`. The second command creates an account API token and adds it to `.env`. The trip planner needs an account token, because it asks the judges to review each draft during the run.
 
-### 5. Add the judges to the agent
+### 4. Add a model for the judges
 
-1. Open the Trip planner agent.
-2. On the **Overview** tab, in the **Judges** box, choose **Add judge**.
-3. Choose a judge, set **Trigger** to **On completion**, and add it.
-4. Repeat for each judge.
+Judges run on a model that Prefactor calls for you. Add a provider and a model, and keep the model's ID for the next step:
 
-The agent asks every judge added to it to review each draft during the run. The **On completion** trigger makes each judge review the run once more after it finishes.
+```bash
+PROVIDER_ID=$(prefactor llm_providers create --name "Together AI" --provider together \
+  --api_key "$(grep '^OPENAI_API_KEY=' .env | cut -d= -f2-)" | jq -r .details.id)
+MODEL_ID=$(prefactor llm_provider_models create --llm_provider_id "$PROVIDER_ID" \
+  --api_name zai-org/GLM-5.3-Flash | jq -r .details.id)
+```
+
+This example reuses the Together AI key from `.env`. For another provider, set `--provider` to `anthropic`, `openai`, `ollama_cloud` or `custom_openai`; `custom_openai` also needs `--api_base_url`. Choose a fast model, because each judge reads the whole record of a run.
+
+If the account already has a provider, find the model's ID with `prefactor llm_providers list` and `prefactor llm_provider_models list --llm_provider_id <provider_id>`.
+
+### 5. Create the judges
+
+The [`judges/`](judges/) folder holds one criterion for each judge. This loop creates each judge from its criterion, using the model from step 4, and adds it to the Trip planner agent:
+
+```bash
+AGENT_ID=$(grep '^PREFACTOR_AGENT_ID=' .env | cut -d= -f2)
+while IFS=: read -r file name; do
+  JUDGE_ID=$(prefactor judges create --name "$name" | jq -r .details.id)
+  prefactor judges create_version --agent_id "$JUDGE_ID" \
+    --hosted_llm_provider_model_id "$MODEL_ID" --criterion "@judges/$file.md" > /dev/null
+  prefactor agent_associations create --from_agent_id "$JUDGE_ID" --to_agent_id "$AGENT_ID" \
+    --association_type judge --trigger on_completion > /dev/null
+  echo "Added $name"
+done <<'JUDGES'
+rules:Trip plan rules
+accommodation:Trip plan accommodation
+hallucination:Trip plan hallucination
+locations:Trip plan locations
+worth_taking:Trip worth taking
+makes_sense:Trip plan makes sense
+JUDGES
+```
+
+Leave a line out to skip a judge, or edit a criterion to change what the judge checks.
+
+The agent asks every judge added to it to review each draft during the run. The `on_completion` trigger makes each judge review the run once more after it finishes.
 
 ## Judges
 
@@ -68,25 +109,6 @@ The agent asks every judge added to it to review each draft during the run. The 
 | Trip plan locations | [`locations.md`](judges/locations.md) | a place could not be found, was mistaken for another place, or cannot be reached by road, and the plan does not say so |
 | Trip worth taking | [`worth_taking.md`](judges/worth_taking.md) | the trip is a poor idea as asked and the plan does not warn the traveller; a trip is a poor idea when it needs more than 400 km or less than 250 km of driving a day, when rain is likely on most days, when the weather is extreme, or when there are few places to stop or stay |
 | Trip plan makes sense | [`makes_sense.md`](judges/makes_sense.md) | the plan suggests something a traveller would not choose to do, such as visiting a hospital, a prison or a plain railway station, or filler such as "stock up on food" |
-
-## Set up the trip planner
-
-```bash
-uv sync
-cp .env.example .env
-```
-
-Fill in `.env`:
-
-| Setting | Value |
-|---|---|
-| `OPENAI_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
-| `OPENAI_API_KEY` | your API key for that provider |
-| `OPENAI_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
-| `PREFACTOR_API_URL` | `https://app.prefactorai.com` |
-| `PREFACTOR_API_TOKEN` | the API token from step 2 |
-| `PREFACTOR_AGENT_ID` | the agent ID from step 1 |
-| `PREFACTOR_ENVIRONMENT_ID` | the environment ID from step 2 |
 
 ## Plan a trip
 
@@ -151,6 +173,7 @@ The script exits with status 1 if any plan fails, so you can run it in CI. Prefa
 | Problem | Fix |
 |---|---|
 | A run stops with a timeout or a "service unavailable" error from the model provider | The model is busy. The agent retries a few times; if the run still fails, start it again |
-| The terminal shows a score of 0 and no judges | No judges are added to the agent. Follow steps 4 and 5 |
-| The run fails at the start with an error about the agent or environment | Check `PREFACTOR_AGENT_ID` and `PREFACTOR_ENVIRONMENT_ID`, and check that the API token is from the same account |
+| The terminal shows a score of 0 and no judges | No judges are added to the agent. Follow step 5 |
+| The run fails at the start with an error about the agent | Check `PREFACTOR_AGENT_ID`, and check that `PREFACTOR_API_TOKEN` is an account token from the same account |
+| The run fails with "403 Forbidden" when it asks the judges | `PREFACTOR_API_TOKEN` is a deployment token. Replace it with an account token, as in step 3 |
 | A route lookup fails | The public map and routing services are sometimes slow or unavailable. Wait a minute and try again |
