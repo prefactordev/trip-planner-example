@@ -5,8 +5,9 @@ Usage:
     python main.py Melbourne Adelaide --days 4
 
 Environment:
-    TOGETHER_API_KEY     Together AI API key
-    TOGETHER_MODEL       Together AI model (optional)
+    OPENAI_BASE_URL      Base URL of an OpenAI-compatible API
+    OPENAI_API_KEY       API key for that API
+    OPENAI_MODEL         Model name; it must support tool calling
     PREFACTOR_API_URL    Prefactor API URL
     PREFACTOR_API_TOKEN  Prefactor API token
     PREFACTOR_AGENT_ID   Prefactor agent ID (omit for deployment-scoped tokens)
@@ -36,8 +37,6 @@ from rich.rule import Rule
 from evals import QUALITY_SCHEMA, QUALITY_SCHEMA_NAME, PrefactorJudges
 from graph import TripState, build_graph
 
-TOGETHER_API_URL = "https://api.together.xyz/v1"
-DEFAULT_MODEL = "moonshotai/Kimi-K3"
 AGENT_NAME = "Trip planner"
 
 Purpose = Literal["live", "smoke_test", "eval"]
@@ -64,16 +63,16 @@ def schema_version_id(registry: SchemaRegistry) -> str:
     return f"trip-planner-{digest}"
 
 
-def together_model(model: str) -> ChatOpenAI:
-    """Create a chat model on Together AI's OpenAI-compatible API."""
+def chat_model() -> ChatOpenAI:
+    """Create a chat model on the configured OpenAI-compatible API."""
     return ChatOpenAI(
-        model=model,
-        base_url=TOGETHER_API_URL,
-        api_key=SecretStr(os.environ["TOGETHER_API_KEY"]),
-        # Kimi K3 reasons before it answers, and a long trip can use most of
-        # the budget on reasoning.
+        model=os.environ["OPENAI_MODEL"],
+        base_url=os.environ["OPENAI_BASE_URL"],
+        api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
+        # Reasoning models think before they answer, and a long trip can use
+        # most of the budget on reasoning.
         max_completion_tokens=32000,
-        # Together sometimes answers 503 when the model is busy.
+        # Hosted providers sometimes answer 503 when the model is busy.
         max_retries=5,
     )
 
@@ -117,7 +116,7 @@ async def run_trip(request: str, purpose: Purpose = "live") -> TripState:
                 instance=instance, tool_span_types=tool_span_types
             )
             graph = build_graph(
-                together_model(os.environ.get("TOGETHER_MODEL", DEFAULT_MODEL)),
+                chat_model(),
                 PrefactorJudges(api_url, api_token),
             )
             state = await graph.ainvoke(
