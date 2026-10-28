@@ -24,6 +24,8 @@ def span(schema_name: str, status: str, node: str | None = None) -> dict[str, An
     return {"schema_name": schema_name, "status": status, "payload": payload}
 
 
+TIMEOUT: dict[str, Any] = {}
+
 SETTLED_SPANS = [
     span("langchain:agent", "active"),
     span("langchain:node", "complete", "draft_itinerary"),
@@ -71,7 +73,10 @@ class FakePrefactor:
             return ok({"details": {"id": f"run-{judge_id}", "status": "preparing"}})
         if path.startswith("/agent_instance/run-"):
             runs = self.judge_runs[path.removeprefix("/agent_instance/run-")]
-            return ok({"details": runs.pop(0) if len(runs) > 1 else runs[0]})
+            run = runs.pop(0) if len(runs) > 1 else runs[0]
+            if run is TIMEOUT:
+                raise httpx.ReadTimeout("Prefactor was slow", request=request)
+            return ok({"details": run})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
 
@@ -144,6 +149,20 @@ async def test_a_judge_that_does_not_finish_fails_its_check():
         Check("Trip plan rules", False, "The judge gave no verdict (status failed).")
         in checks
     )
+
+
+async def test_a_slow_status_check_does_not_stop_the_wait_for_a_verdict():
+    fake = FakePrefactor(
+        [SETTLED_SPANS],
+        {
+            "judge-rules": [TIMEOUT, finished("pass", "Every rule holds.")],
+            "judge-grounded": [finished("pass", "Fine.")],
+        },
+    )
+
+    checks = await judges_for(fake)(INSTANCE_ID)
+
+    assert Check("Trip plan rules", True, "Every rule holds.") in checks
 
 
 @pytest.mark.parametrize(

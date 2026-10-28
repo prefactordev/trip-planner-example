@@ -11,6 +11,7 @@ agent instance.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -176,9 +177,11 @@ class PrefactorJudges:
         deadline = time.monotonic() + JUDGE_TIMEOUT_SECONDS
         run: dict[str, Any] = {"status": "preparing"}
         while time.monotonic() < deadline:
-            run = await _details(http, f"/agent_instance/{run_id}")
-            if run["status"] in FINISHED_STATUSES:
-                break
+            # A slow or dropped status check is retried on the next poll.
+            with contextlib.suppress(httpx.TransportError):
+                run = await _details(http, f"/agent_instance/{run_id}")
+                if run["status"] in FINISHED_STATUSES:
+                    break
             await asyncio.sleep(self._poll_seconds)
         verdict = run.get("result_payload") or {}
         if run["status"] != "complete" or "verdict" not in verdict:
