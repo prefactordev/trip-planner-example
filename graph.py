@@ -18,7 +18,6 @@ shows one user message for the whole run.
 from __future__ import annotations
 
 import json
-import math
 import re
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
@@ -93,8 +92,20 @@ class RoutePlan(BaseModel):
 
     @model_validator(mode="after")
     def _stops_unless_problem(self) -> RoutePlan:
-        if self.problem is None and len(self.stops) < 2:
+        if self.problem is not None:
+            return self
+        if len(self.stops) < 2:
             raise ValueError("Choose at least 2 stops, or explain the problem")
+        previous_name, previous_km = "the origin", 0.0
+        for stop in self.stops:
+            gap = stop.km_from_start - previous_km
+            if gap > DAILY_DRIVING_LIMIT_KM:
+                raise ValueError(
+                    f"{stop.name} is {gap:.0f} km after {previous_name}, more "
+                    f"than {DAILY_DRIVING_LIMIT_KM} km. Add a stop between "
+                    "them, or explain the problem"
+                )
+            previous_name, previous_km = stop.name, stop.km_from_start
         return self
 
 
@@ -137,9 +148,13 @@ Plan the driving route from {origin} to {destination} for {length}.
 1. Geocode the origin and the destination.
 2. Get the route between them.
 3. Find the towns along the route.
-4. Choose 2 to 6 stops in driving order so that no day has more than about \
-350 km of driving. The last stop must be the destination. Use only towns \
+4. Choose 2 to 6 stops in driving order so that the first stop is no more \
+than about 350 km from the origin and each stop is no more than about 350 km \
+from the one before. The last stop must be the destination. Use only towns \
 returned by the tools, plus the destination.
+
+If 6 stops cannot keep every gap within 400 km, explain that in the problem \
+field and leave the stops empty.
 
 Report the place names geocode found. If geocode finds no place, finds a \
 place other than the one the user meant (such as a town of the same name in \
@@ -269,6 +284,33 @@ this draft:
 {feedback}"""
 
 
+def driving_days(km_from_start: list[float]) -> int:
+    """Count the fewest days that end at stops and keep within the limit.
+
+    Each day drives on to the farthest stop within the daily limit. A gap
+    longer than the limit still takes one day.
+
+    Args:
+        km_from_start: Each stop's distance from the start, in driving order,
+            ending at the destination.
+
+    Returns:
+        The number of driving days.
+    """
+    days, position, index = 0, 0.0, 0
+    while index < len(km_from_start):
+        reach = index
+        while (
+            reach + 1 < len(km_from_start)
+            and km_from_start[reach + 1] - position <= DAILY_DRIVING_LIMIT_KM
+        ):
+            reach += 1
+        position = km_from_start[reach]
+        index = reach + 1
+        days += 1
+    return days
+
+
 def _day_dates(start_date: str, days: int) -> str:
     """List each day's date, starting from the trip's start date."""
     start = date.fromisoformat(start_date)
@@ -330,9 +372,10 @@ def build_graph(model: BaseChatModel, judges: Judges) -> Any:
         result = await agent.ainvoke({"messages": [_request_message(state)]}, config)
         plan: RoutePlan = result["structured_response"]
         # With no number of days from the user, use the fewest days that
-        # keep each day within the driving limit.
+        # end at stops and keep each day within the driving limit.
         days = request["days"] or min(
-            MAX_DAYS, max(1, math.ceil(plan.distance_km / DAILY_DRIVING_LIMIT_KM))
+            MAX_DAYS,
+            max(1, driving_days([stop.km_from_start for stop in plan.stops])),
         )
         return {
             "request": {**request, "days": days},
