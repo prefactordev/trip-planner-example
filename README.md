@@ -4,7 +4,7 @@ A command-line agent that plans a road trip between two places, with a guide to 
 
 Give the agent a start and an end. It finds a driving route, chooses towns to stop at, looks up things to see, the weather and places to stay, and writes a day-by-day plan. Prefactor judges review each draft before the agent hands it over. When a judge fails a draft, the agent rewrites it using the judge's explanation. Prefactor records every step of the run, so you can follow what the agent did and read why each judge passed or failed the plan.
 
-For more about agents, runs and quality in Prefactor, see the [Prefactor docs](https://docs.prefactor.tech).
+For more about agents, runs and quality in Prefactor, see the [Prefactor docs](https://docs.prefactor.ai).
 
 The agent uses these free public services:
 
@@ -16,22 +16,21 @@ The agent uses these free public services:
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
-- [jq](https://jqlang.org/), to read IDs from the Prefactor CLI's output
 - an API key for a model provider with an OpenAI-compatible API, such as [Together AI](https://docs.together.ai/docs/openai-api-compatibility), and a model there that supports tool calling
 - a Prefactor account at [app.prefactorai.com](https://app.prefactorai.com)
 
 ## Set up
 
-Do these steps once. Run the commands from this folder.
+Do these steps once. Run each command in a terminal, from this folder. The `prefactor` commands in steps 3 to 5 print their result as JSON, except `prefactor setup`. Where a step asks for an ID, copy the `id` value from the `details` part of the result, and use it in place of the matching `<...>` in a later command.
 
 ### 1. Install the Prefactor CLI and sign in
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/prefactordev/typescript-sdk/main/scripts/install.sh | bash
+curl -fsSL https://prefactor.tech/install.sh | bash
 prefactor login
 ```
 
-For Windows and other ways to install, see the [Prefactor CLI](https://github.com/prefactordev/typescript-sdk/tree/main/packages/cli).
+`prefactor login` opens the Prefactor sign-in page in your browser. After you sign in, paste the API token it shows into the terminal. For Windows, see [Getting started with the CLI](https://docs.prefactor.ai/cli/getting-started).
 
 ### 2. Set the model
 
@@ -44,60 +43,74 @@ Fill in the model settings in `.env`:
 
 | Setting | Value |
 |---|---|
-| `OPENAI_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
-| `OPENAI_API_KEY` | your API key for that provider |
-| `OPENAI_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
+| `LLM_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
+| `LLM_API_KEY` | your API key for that provider |
+| `LLM_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
 
 ### 3. Create the agent
 
 ```bash
-prefactor setup --create --name "Trip planner" | grep -E '^PREFACTOR_(API_URL|AGENT_ID)=' >> .env
-echo "PREFACTOR_API_TOKEN=$(prefactor api_tokens create --token_scope account | jq -r .details.token)" >> .env
+prefactor setup --create --name "Trip planner"
 ```
 
-`prefactor setup` creates the agent and a deployment for it, and the first command adds the Prefactor address and the agent ID to `.env`. The second command creates an account API token and adds it to `.env`. The trip planner needs an account token, because it asks the judges to review each draft during the run.
+This creates the agent and a deployment for it, and prints some settings. Copy the `PREFACTOR_API_URL` and `PREFACTOR_AGENT_ID` lines into `.env`.
+
+The trip planner also needs an account API token, because it asks the judges to review each draft during the run:
+
+```bash
+prefactor api_tokens create --token_scope account
+```
+
+Add the `token` value from the result to `.env` as `PREFACTOR_API_TOKEN=<token>`.
 
 ### 4. Add a model for the judges
 
-Judges run on a model that Prefactor calls for you. Add a provider and a model, and keep the model's ID for the next step:
+Judges run inside Prefactor, so Prefactor needs a model provider of its own. Add the same provider as in `.env`, using its `LLM_BASE_URL` and `LLM_API_KEY` values:
 
 ```bash
-PROVIDER_ID=$(prefactor llm_providers create --name "Together AI" --provider together \
-  --api_key "$(grep '^OPENAI_API_KEY=' .env | cut -d= -f2-)" | jq -r .details.id)
-MODEL_ID=$(prefactor llm_provider_models create --llm_provider_id "$PROVIDER_ID" \
-  --api_name zai-org/GLM-5.3-Flash | jq -r .details.id)
+prefactor llm_providers create --name "Trip planner models" --provider custom_openai \
+  --api_base_url <LLM_BASE_URL> --api_key <LLM_API_KEY>
 ```
 
-This example reuses the Together AI key from `.env`. For another provider, set `--provider` to `anthropic`, `openai`, `ollama_cloud` or `custom_openai`; `custom_openai` also needs `--api_base_url`. Choose a fast model, because each judge reads the whole record of a run.
+Then add a model for the judges, using the provider ID from the result:
 
-If the account already has a provider, find the model's ID with `prefactor llm_providers list` and `prefactor llm_provider_models list --llm_provider_id <provider_id>`.
+```bash
+prefactor llm_provider_models create --llm_provider_id <provider_id> \
+  --api_name zai-org/GLM-5.3-Flash --name "Judge model"
+```
+
+Replace `zai-org/GLM-5.3-Flash` with a model your provider offers. Choose a fast one, because each judge reads the whole record of a run. Keep the model ID from the result for step 5.
+
+If Prefactor already has a provider you want to use, find a model ID with `prefactor llm_providers list` and `prefactor llm_provider_models list --llm_provider_id <provider_id>` instead.
 
 ### 5. Create the judges
 
-The [`judges/`](judges/) folder holds one criterion for each judge. This loop creates each judge from its criterion, using the model from step 4, and adds it to the Trip planner agent:
+The [`judges/`](judges/) folder holds one criterion for each judge, and the [judges table](#judges) gives each judge's name. Each judge takes three commands. For the rules judge:
 
 ```bash
-AGENT_ID=$(grep '^PREFACTOR_AGENT_ID=' .env | cut -d= -f2)
-while IFS=: read -r file name; do
-  JUDGE_ID=$(prefactor judges create --name "$name" | jq -r .details.id)
-  prefactor judges create_version --agent_id "$JUDGE_ID" \
-    --hosted_llm_provider_model_id "$MODEL_ID" --criterion "@judges/$file.md" > /dev/null
-  prefactor agent_associations create --from_agent_id "$JUDGE_ID" --to_agent_id "$AGENT_ID" \
-    --association_type judge --trigger on_completion > /dev/null
-  echo "Added $name"
-done <<'JUDGES'
-rules:Trip plan rules
-accommodation:Trip plan accommodation
-hallucination:Trip plan hallucination
-locations:Trip plan locations
-worth_taking:Trip worth taking
-makes_sense:Trip plan makes sense
-JUDGES
+prefactor judges create --name "Trip plan rules"
+prefactor judges create_version --agent_id <judge_id> \
+  --hosted_llm_provider_model_id <model_id> --criterion @judges/rules.md
+prefactor agent_associations create --from_agent_id <judge_id> --to_agent_id <agent_id> \
+  --association_type judge --trigger on_completion
 ```
 
-Leave a line out to skip a judge, or edit a criterion to change what the judge checks.
+1. `judges create` creates the judge. Use the judge ID from its result in the next two commands.
+2. `judges create_version` gives the judge its criterion and the model from step 4.
+3. `agent_associations create` adds the judge to the Trip planner agent, using the `PREFACTOR_AGENT_ID` from step 3.
+
+Repeat the three commands for each judge you want, with its name and criterion file. To change what a judge checks, edit its criterion before you create it. For more about judges, see [Set up a judge](https://docs.prefactor.ai/cli/judges).
 
 The agent asks every judge added to it to review each draft during the run. The `on_completion` trigger makes each judge review the run once more after it finishes.
+
+Alternatively, you can set up steps 4 and 5 in the web app at [app.prefactorai.com](https://app.prefactorai.com):
+
+1. In **Account settings**, open **LLM providers**, add your provider, and add a model to it.
+2. Open **Judges**, choose **Register judge**, and enter the judge's name.
+3. On the judge's page, choose **Create judge**, select the model, choose **Write your own**, paste the criterion file into **Criterion**, and choose **Create judge**.
+4. Open the Trip planner agent. On the **Overview** tab, in the **Judges** box, choose **Add judge**, choose the judge, and set **Trigger** to **On completion**.
+
+Repeat the last three steps for each judge.
 
 ## Judges
 
