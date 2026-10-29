@@ -1,10 +1,10 @@
 """Evals for trip plans, run by Prefactor judges.
 
-``PrefactorJudges`` asks every judge associated with the trip planner agent
-to score the run so far, through Prefactor's on-demand judge API, and waits
-for their verdicts. Each judge reads the whole run record, including the
-model calls, tool calls and the latest draft. ``quality_payload`` turns the
-verdicts into the ``trip_plan_quality`` payload recorded on the Prefactor
+``PrefactorJudges`` asks every judge of the trip planner instance to score
+the run so far, through Prefactor's on-demand judge API, and reads their
+verdicts from that instance. Each judge reads the whole run record, including
+the model calls, tool calls and the latest draft. ``quality_payload`` turns
+the verdicts into the ``trip_plan_quality`` payload recorded on the Prefactor
 agent instance.
 """
 
@@ -51,10 +51,6 @@ QUALITY_SCHEMA: dict[str, Any] = {
 }
 
 FINISHED_STATUSES = {"complete", "failed", "cancelled", "terminated"}
-# The SDK sends span updates from a background queue. A judge reads the spans
-# Prefactor has, so wait until the model and tool calls have arrived.
-SETTLING_SCHEMAS = {"langchain:llm", "langchain:tool"}
-SPANS_TIMEOUT_SECONDS = 60
 # Prefactor builds a judge's record from the spans it has moved to ClickHouse
 # plus the buffered spans it has not moved yet. A span moved while it was still
 # active shows as active until its finished version is moved too, which takes
@@ -89,8 +85,8 @@ class PrefactorJudges:
             api_url: Prefactor API URL, for example ``http://localhost:4000``.
             api_token: Prefactor API token.
             poll_seconds: How long to wait between status checks.
-            flush_seconds: How long to wait after the spans have arrived,
-                so that Prefactor has moved them to ClickHouse.
+            flush_seconds: How long to wait before asking the judges, so that
+                Prefactor has moved the spans to ClickHouse.
             transport: HTTP transport, for tests.
         """
         self._base_url = f"{api_url.rstrip('/')}/api/v1"
@@ -114,9 +110,7 @@ class PrefactorJudges:
             timeout=30,
             transport=self._transport,
         ) as http:
-            instance = await _details(http, f"/agent_instance/{instance_id}")
-            judges = await self._judges(http, instance["agent_id"])
-            await self._wait_for_spans(http, instance_id)
+            judges = await self._judges(http, instance_id)
             await asyncio.sleep(self._flush_seconds)
             return list(
                 await asyncio.gather(
@@ -128,42 +122,16 @@ class PrefactorJudges:
             )
 
     async def _judges(
-        self, http: httpx.AsyncClient, agent_id: str
+        self, http: httpx.AsyncClient, instance_id: str
     ) -> list[tuple[str, str]]:
-        response = await http.get(
-            "/agent_association/to", params={"agent_id": agent_id}
+        instance = await _details(
+            http,
+            f"/agent_instance/{instance_id}",
+            params={"include_judges": "true"},
         )
-        response.raise_for_status()
-        judge_ids = [
-            association["from_agent_id"]
-            for association in response.json()["summaries"]
-            if association["association_type"] == "judge"
+        return [
+            (judge["id"], judge["name"]) for judge in instance.get("judges") or []
         ]
-        judges = []
-        for judge_id in judge_ids:
-            judge = await _details(http, f"/agent/{judge_id}")
-            judges.append((judge_id, judge["name"]))
-        return judges
-
-    async def _wait_for_spans(self, http: httpx.AsyncClient, instance_id: str) -> None:
-        deadline = time.monotonic() + SPANS_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
-            response = await http.get(
-                "/agent_spans",
-                params={
-                    "agent_instance_id": instance_id,
-                    "pagination[page_size]": 100,
-                    "sorting[field]": "started_at",
-                    "sorting[direction]": "desc",
-                },
-            )
-            response.raise_for_status()
-            if not any(
-                span["schema_name"] in SETTLING_SCHEMAS and span["status"] == "active"
-                for span in response.json()["summaries"]
-            ):
-                return
-            await asyncio.sleep(self._poll_seconds)
 
     async def _ask(
         self, http: httpx.AsyncClient, instance_id: str, judge_id: str, name: str
@@ -173,26 +141,47 @@ class PrefactorJudges:
             json={"judge_agent_id": judge_id},
         )
         response.raise_for_status()
-        run_id = response.json()["details"]["id"]
+        run_id = response.json()["summary"]["id"]
         deadline = time.monotonic() + JUDGE_TIMEOUT_SECONDS
-        run: dict[str, Any] = {"status": "preparing"}
+        status = "preparing"
+        # A newer run leaves the previous judgement in place until it completes,
+        # so this stays empty unless the run just started is complete.
+        judgement: dict[str, Any] = {}
         while time.monotonic() < deadline:
             # A slow or dropped status check is retried on the next poll.
             with contextlib.suppress(httpx.TransportError):
-                run = await _details(http, f"/agent_instance/{run_id}")
-                if run["status"] in FINISHED_STATUSES:
-                    break
+                instance = await _details(
+                    http,
+                    f"/agent_instance/{instance_id}",
+                    params={"include_judges": "true"},
+                )
+                judge = next(
+                    (
+                        item
+                        for item in instance.get("judges") or []
+                        if item["id"] == judge_id
+                    ),
+                    None,
+                )
+                latest = (judge or {}).get("latest_instance") or {}
+                if latest.get("id") == run_id:
+                    status = latest["status"]
+                    if status in FINISHED_STATUSES:
+                        if status == "complete":
+                            judgement = (judge or {}).get("latest_judgement") or {}
+                        break
             await asyncio.sleep(self._poll_seconds)
-        verdict = run.get("result_payload") or {}
-        if run["status"] != "complete" or "verdict" not in verdict:
+        if status != "complete" or "verdict" not in judgement:
             return Check(
-                name, False, f"The judge gave no verdict (status {run['status']})."
+                name, False, f"The judge gave no verdict (status {status})."
             )
-        return Check(name, verdict["verdict"] == "pass", verdict["explanation"])
+        return Check(name, judgement["verdict"] == "pass", judgement["explanation"])
 
 
-async def _details(http: httpx.AsyncClient, path: str) -> dict[str, Any]:
-    response = await http.get(path)
+async def _details(
+    http: httpx.AsyncClient, path: str, params: dict[str, str] | None = None
+) -> dict[str, Any]:
+    response = await http.get(path, params=params)
     response.raise_for_status()
     return response.json()["details"]
 

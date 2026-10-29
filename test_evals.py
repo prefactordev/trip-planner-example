@@ -15,69 +15,57 @@ import pytest
 from evals import Check, PrefactorJudges, quality_payload
 
 INSTANCE_ID = "instance-1"
-AGENT_ID = "trip-planner"
 JUDGES = {"judge-rules": "Trip plan rules", "judge-grounded": "Trip plan grounded"}
-
-
-def span(schema_name: str, status: str, node: str | None = None) -> dict[str, Any]:
-    payload = {"node": node} if node else {}
-    return {"schema_name": schema_name, "status": status, "payload": payload}
-
+# A run that is not complete leaves the previous draft's judgement in place.
+STALE_JUDGEMENT = {"verdict": "pass", "explanation": "Previous draft."}
 
 TIMEOUT: dict[str, Any] = {}
-
-SETTLED_SPANS = [
-    span("langchain:agent", "active"),
-    span("langchain:node", "complete", "draft_itinerary"),
-    span("langchain:llm", "complete"),
-    span("langchain:tool", "complete"),
-    span("langchain:node", "active", "evaluate"),
-]
 
 
 class FakePrefactor:
     """Answers the Prefactor API calls that ``PrefactorJudges`` makes."""
 
-    def __init__(
-        self,
-        span_pages: list[list[dict[str, Any]]],
-        judge_runs: dict[str, list[dict[str, Any]]],
-    ) -> None:
-        self.span_pages = span_pages
+    def __init__(self, judge_runs: dict[str, list[dict[str, Any]]]) -> None:
         self.judge_runs = judge_runs
         self.asked: list[str] = []
-        self.span_lists = 0
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/api/v1")
         if path == f"/agent_instance/{INSTANCE_ID}":
-            return ok({"details": {"id": INSTANCE_ID, "agent_id": AGENT_ID}})
-        if path == "/agent_association/to":
-            assert request.url.params["agent_id"] == AGENT_ID
-            summaries = [
-                {"from_agent_id": judge_id, "association_type": "judge"}
-                for judge_id in JUDGES
-            ]
-            return ok({"summaries": summaries})
-        if path.startswith("/agent/"):
-            judge_id = path.removeprefix("/agent/")
-            return ok({"details": {"id": judge_id, "name": JUDGES[judge_id]}})
-        if path == "/agent_spans":
-            assert request.url.params["agent_instance_id"] == INSTANCE_ID
-            page = self.span_pages[min(self.span_lists, len(self.span_pages) - 1)]
-            self.span_lists += 1
-            return ok({"summaries": page})
+            assert request.url.params["include_judges"] == "true"
+            return ok({"details": self._instance(request)})
         if path == f"/agent_instance/{INSTANCE_ID}/judge":
             judge_id = json.loads(request.content)["judge_agent_id"]
             self.asked.append(judge_id)
-            return ok({"details": {"id": f"run-{judge_id}", "status": "preparing"}})
-        if path.startswith("/agent_instance/run-"):
-            runs = self.judge_runs[path.removeprefix("/agent_instance/run-")]
-            run = runs.pop(0) if len(runs) > 1 else runs[0]
-            if run is TIMEOUT:
-                raise httpx.ReadTimeout("Prefactor was slow", request=request)
-            return ok({"details": run})
+            return ok({"summary": {"id": f"run-{judge_id}", "status": "preparing"}})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    def _instance(self, request: httpx.Request) -> dict[str, Any]:
+        return {
+            "id": INSTANCE_ID,
+            "judges": [self._judge(judge_id, request) for judge_id in JUDGES],
+        }
+
+    def _judge(self, judge_id: str, request: httpx.Request) -> dict[str, Any]:
+        judge: dict[str, Any] = {
+            "id": judge_id,
+            "name": JUDGES[judge_id],
+            "latest_instance": None,
+            "latest_judgement": None,
+        }
+        if judge_id not in self.asked:
+            return judge
+        runs = self.judge_runs[judge_id]
+        run = runs.pop(0) if len(runs) > 1 else runs[0]
+        if run is TIMEOUT:
+            raise httpx.ReadTimeout("Prefactor was slow", request=request)
+        status = run["status"]
+        judge["latest_instance"] = {"id": f"run-{judge_id}", "status": status}
+        if status == "complete":
+            judge["latest_judgement"] = run.get("result_payload")
+        else:
+            judge["latest_judgement"] = STALE_JUDGEMENT
+        return judge
 
 
 def ok(body: dict[str, Any]) -> httpx.Response:
@@ -103,7 +91,6 @@ def judges_for(fake: FakePrefactor) -> PrefactorJudges:
 
 async def test_asks_every_judge_of_the_agent_and_returns_their_verdicts():
     fake = FakePrefactor(
-        [SETTLED_SPANS],
         {
             "judge-rules": [
                 {"status": "active"},
@@ -122,21 +109,8 @@ async def test_asks_every_judge_of_the_agent_and_returns_their_verdicts():
     ]
 
 
-async def test_waits_for_model_and_tool_spans_to_finish_before_asking():
-    still_sending = [*SETTLED_SPANS[:2], span("langchain:llm", "active")]
-    fake = FakePrefactor(
-        [still_sending, SETTLED_SPANS],
-        {judge_id: [finished("pass", "Fine.")] for judge_id in JUDGES},
-    )
-
-    await judges_for(fake)(INSTANCE_ID)
-
-    assert fake.span_lists == 2
-
-
 async def test_a_judge_that_does_not_finish_fails_its_check():
     fake = FakePrefactor(
-        [SETTLED_SPANS],
         {
             "judge-rules": [{"status": "failed", "result_payload": None}],
             "judge-grounded": [finished("pass", "Fine.")],
@@ -153,7 +127,6 @@ async def test_a_judge_that_does_not_finish_fails_its_check():
 
 async def test_a_slow_status_check_does_not_stop_the_wait_for_a_verdict():
     fake = FakePrefactor(
-        [SETTLED_SPANS],
         {
             "judge-rules": [TIMEOUT, finished("pass", "Every rule holds.")],
             "judge-grounded": [finished("pass", "Fine.")],

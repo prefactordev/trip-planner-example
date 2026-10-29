@@ -53,15 +53,9 @@ Fill in the model settings in `.env`:
 prefactor setup --create --name "Trip planner"
 ```
 
-This creates the agent and a deployment for it, and prints some settings. Copy the `PREFACTOR_API_URL` and `PREFACTOR_AGENT_ID` lines into `.env`.
+This creates the agent and a deployment for it, and prints some settings. Copy the `PREFACTOR_API_URL`, `PREFACTOR_API_TOKEN`, and `PREFACTOR_AGENT_ID` lines into `.env`.
 
-The trip planner also needs an account API token, because it asks the judges to review each draft during the run:
-
-```bash
-prefactor api_tokens create --token_scope account
-```
-
-Add the `token` value from the result to `.env` as `PREFACTOR_API_TOKEN=<token>`.
+`PREFACTOR_API_TOKEN` is a deployment token for this agent. The trip planner uses it to record the run and to ask the judges to review each draft.
 
 ### 4. Add a model for the judges
 
@@ -187,6 +181,5 @@ The script exits with status 1 if any plan fails, so you can run it in CI. Prefa
 |---|---|
 | A run stops with a timeout or a "service unavailable" error from the model provider | The model is busy. The agent retries a few times; if the run still fails, start it again |
 | The terminal shows a score of 0 and no judges | No judges are added to the agent. Follow step 5 |
-| The run fails at the start with an error about the agent | Check `PREFACTOR_AGENT_ID`, and check that `PREFACTOR_API_TOKEN` is an account token from the same account |
-| The run fails with "403 Forbidden" when it asks the judges | `PREFACTOR_API_TOKEN` is a deployment token. Replace it with an account token, as in step 3 |
+| The run fails at the start with an error about the agent | Check `PREFACTOR_AGENT_ID`, and check that `PREFACTOR_API_TOKEN` is the deployment token from step 3 |
 | A route lookup fails | The public map and routing services are sometimes slow or unavailable. Wait a minute and try again |
