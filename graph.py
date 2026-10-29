@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict
 
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -343,7 +343,9 @@ def build_graph(model: BaseChatModel, judges: Judges) -> Any:
     """
 
     async def parse_request(state: TripState, config: RunnableConfig) -> TripState:
-        parser = model.with_structured_output(TripRequest, method="function_calling")
+        # Sonnet 5.5 rejects a forced tool call, including the one
+        # function-calling structured output would send.
+        parser = model.with_structured_output(TripRequest, method="json_schema")
         request = await parser.ainvoke(
             [SystemMessage(PARSE_PROMPT), _request_message(state)], config
         )
@@ -367,7 +369,7 @@ def build_graph(model: BaseChatModel, judges: Judges) -> Any:
                     else "a trip of as many days as the distance needs"
                 ),
             ),
-            response_format=ToolStrategy(RoutePlan),
+            response_format=ProviderStrategy(RoutePlan),
         )
         result = await agent.ainvoke({"messages": [_request_message(state)]}, config)
         plan: RoutePlan = result["structured_response"]
@@ -391,7 +393,7 @@ def build_graph(model: BaseChatModel, judges: Judges) -> Any:
                 model=model,
                 tools=RESEARCH_TOOLS,
                 system_prompt=RESEARCH_PROMPT.format(interests=interests, **stop),
-                response_format=ToolStrategy(StopResearch),
+                response_format=ProviderStrategy(StopResearch),
             )
             result = await agent.ainvoke(
                 {"messages": [_request_message(state)]}, config

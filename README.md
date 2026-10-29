@@ -16,7 +16,7 @@ The agent uses these free public services:
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 or later
-- an API key for a model provider with an OpenAI-compatible API, such as [Together AI](https://docs.together.ai/docs/openai-api-compatibility), and a model there that supports tool calling
+- an [Anthropic API key](https://platform.claude.com/) and a Claude model that supports tool calling
 - a Prefactor account at [app.prefactorai.com](https://app.prefactorai.com)
 
 ## Set up
@@ -43,9 +43,8 @@ Fill in the model settings in `.env`:
 
 | Setting | Value |
 |---|---|
-| `LLM_BASE_URL` | the base URL of your provider's OpenAI-compatible API, for example `https://api.together.ai/v1` for Together AI |
-| `LLM_API_KEY` | your API key for that provider |
-| `LLM_MODEL` | the model name, for example `moonshotai/Kimi-K3` on Together AI; the model must support tool calling |
+| `LLM_API_KEY` | your Anthropic API key |
+| `LLM_MODEL` | the Claude model name, for example `claude-sonnet-5-5`; the model must support tool calling |
 
 ### 3. Create the agent
 
@@ -59,23 +58,23 @@ This creates the agent and a deployment for it, and prints some settings. Copy t
 
 ### 4. Add a model for the judges
 
-Judges run inside Prefactor, so Prefactor needs a model provider of its own. Add the same provider as in `.env`, using its `LLM_BASE_URL` and `LLM_API_KEY` values:
+Judges run inside Prefactor, so Prefactor needs a model provider of its own. Add Anthropic, using the `LLM_API_KEY` from `.env`:
 
 ```bash
-prefactor llm_providers create --name "Trip planner models" --provider custom_openai \
-  --api_base_url <LLM_BASE_URL> --api_key <LLM_API_KEY>
+prefactor llm_providers create --name "Trip planner models" --provider anthropic \
+  --api_key <LLM_API_KEY>
 ```
 
 Then add a model for the judges, using the provider ID from the result:
 
 ```bash
 prefactor llm_provider_models create --llm_provider_id <provider_id> \
-  --api_name zai-org/GLM-5.3-Flash --name "Judge model"
+  --api_name claude-haiku-5-5
 ```
 
-Replace `zai-org/GLM-5.3-Flash` with a model your provider offers. Choose a fast one, because each judge reads the whole record of a run. Keep the model ID from the result for step 5.
+Claude Haiku 5.5 is a fast model, which suits a judge that reads the whole record of a run. Keep the model ID from the result for step 5.
 
-If Prefactor already has a provider you want to use, find a model ID with `prefactor llm_providers list` and `prefactor llm_provider_models list --llm_provider_id <provider_id>` instead.
+If Prefactor already has an Anthropic provider you want to use, find a model ID with `prefactor llm_providers list` and `prefactor llm_provider_models list --llm_provider_id <provider_id>` instead.
 
 ### 5. Create the judges
 
@@ -99,7 +98,7 @@ The agent asks every judge added to it to review each draft during the run. The 
 
 Alternatively, you can set up steps 4 and 5 in the web app at [app.prefactorai.com](https://app.prefactorai.com):
 
-1. In **Account settings**, open **LLM providers**, add your provider, and add a model to it.
+1. In **Account settings**, open **LLM providers**, add Anthropic, and add Claude Haiku 5.5 to it.
 2. Open **Judges**, choose **Register judge**, and enter the judge's name.
 3. On the judge's page, choose **Create judge**, select the model, choose **Write your own**, paste the criterion file into **Criterion**, and choose **Create judge**.
 4. Open the Trip planner agent. On the **Overview** tab, in the **Judges** box, choose **Add judge**, choose the judge, and set **Trigger** to **On completion**.

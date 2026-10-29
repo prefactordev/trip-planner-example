@@ -5,9 +5,8 @@ Usage:
     python main.py Melbourne Adelaide --days 4
 
 Environment:
-    LLM_BASE_URL         Base URL of an OpenAI-compatible API
-    LLM_API_KEY          API key for that API
-    LLM_MODEL            Model name; it must support tool calling
+    LLM_API_KEY          Anthropic API key
+    LLM_MODEL            Claude model name; it must support tool calling
     PREFACTOR_API_URL    Prefactor API URL
     PREFACTOR_API_TOKEN  Prefactor API token
     PREFACTOR_AGENT_ID   Prefactor agent ID (omit for deployment-scoped tokens)
@@ -24,8 +23,8 @@ import json
 import os
 from typing import Any, Literal
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from prefactor_core import PrefactorCoreConfig, SchemaRegistry
 from prefactor_http.config import HttpClientConfig
 from prefactor_langchain import PrefactorCallbackHandler, register_langchain_schemas
@@ -63,16 +62,15 @@ def schema_version_id(registry: SchemaRegistry) -> str:
     return f"trip-planner-{digest}"
 
 
-def chat_model() -> ChatOpenAI:
-    """Create a chat model on the configured OpenAI-compatible API."""
-    return ChatOpenAI(
+def chat_model() -> ChatAnthropic:
+    """Create a chat model on the Anthropic API."""
+    return ChatAnthropic(
         model=os.environ["LLM_MODEL"],
-        base_url=os.environ["LLM_BASE_URL"],
         api_key=SecretStr(os.environ["LLM_API_KEY"]),
-        # Reasoning models think before they answer, and a long trip can use
-        # most of the budget on reasoning.
-        max_completion_tokens=32000,
-        # Hosted providers sometimes answer 503 when the model is busy.
+        # Current models think before they answer, and those tokens count
+        # against this limit. A long itinerary needs room past that.
+        max_tokens=32000,
+        # The API sometimes answers 529 when the model is busy.
         max_retries=5,
     )
 
